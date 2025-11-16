@@ -1,9 +1,26 @@
-node_modules/
-dist/
-*.log
-.env
-.DS_Store
-*.swp
-*.swo
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Binary
+ocpp-server
+ocpp_management_system
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Environment
+.env
+*.log
+
+# OS
+.DS_Store
