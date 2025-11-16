@@ -71,7 +71,7 @@ func (h *MessageHandlers) HandleBootNotification(
 
 	return types.BootNotificationResponse{
 		Status:      status,
-		CurrentTime: time.Now().Format(time.RFC3339),
+		CurrentTime: time.Now().UTC().Format(time.RFC3339),
 		Interval:    300, // Heartbeat every 5 minutes
 	}
 }
@@ -80,7 +80,7 @@ func (h *MessageHandlers) HandleBootNotification(
 func (h *MessageHandlers) HandleHeartbeat(chargePointID string) types.HeartbeatResponse {
 	h.db.UpdateChargePointStatus(chargePointID, "online")
 	return types.HeartbeatResponse{
-		CurrentTime: time.Now().Format(time.RFC3339),
+		CurrentTime: time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
