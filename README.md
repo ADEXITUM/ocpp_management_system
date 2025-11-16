@@ -6,7 +6,11 @@ A comprehensive OCPP 1.6J management system for EV charging stations written in 
 
 - **OCPP 1.6J Protocol Support** - Full WebSocket-based OCPP implementation
 - **Multiple Charge Point Management** - Handle connections from many charging stations simultaneously
-- **Simple API** - Easy-to-use methods for controlling charging sessions:
+- **REST API** - HTTP endpoints for easy integration (see [API_EXAMPLES.md](./API_EXAMPLES.md)):
+  - `POST /sessions/start` - Start charging with payment
+  - `GET /sessions/{id}/energy` - Get current energy consumption
+  - `POST /sessions/{id}/stop` - Stop charging session
+- **Go Service API** - Programmatic API for Go applications:
   - `TurnOn()` - Start charging
   - `TurnOff()` - Stop charging
   - `GetEnergyConsumption()` - Get real-time energy usage
@@ -43,7 +47,9 @@ go build -o ocpp-server cmd/server/main.go
 go run cmd/server/main.go
 ```
 
-The server will start on `ws://0.0.0.0:9000` and display configured charge points:
+The server will start two services:
+- **OCPP WebSocket** on port `9000` (for charge points)
+- **REST API** on port `8080` (for your application)
 
 ```
 ═══════════════════════════════════════════════════════
@@ -54,10 +60,13 @@ The server will start on `ws://0.0.0.0:9000` and display configured charge point
 📊 Configured Charge Points: 3
    - CP001: Main Street Station 1 (EVBox Elvi)
      Connectors: 2, Status: offline
-   - CP002: Shopping Mall Station (ABB Terra AC)
-     Connectors: 1, Status: offline
-   - CP003: Office Parking Charger (ChargePoint CPE250)
-     Connectors: 2, Status: offline
+
+✅ System ready!
+
+🌐 REST API listening on http://0.0.0.0:8080
+   POST   http://0.0.0.0:8080/sessions/start
+   GET    http://0.0.0.0:8080/sessions/{transactionId}/energy
+   POST   http://0.0.0.0:8080/sessions/{transactionId}/stop
 
 🔌 OCPP Server listening on ws://0.0.0.0:9000
    Waiting for charge points to connect...
@@ -88,9 +97,47 @@ npm install
 WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
 ```
 
-## Using the API
+## Using the REST API (Recommended)
 
-### In Your Payment Service
+The easiest way to control charging sessions is via REST API. See [API_EXAMPLES.md](./API_EXAMPLES.md) for complete examples.
+
+### Quick Example
+
+```bash
+# 1. Start charging session (with payment)
+curl -X POST http://localhost:8080/sessions/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chargePointId": "CP001",
+    "connectorId": 1,
+    "userId": "user-123",
+    "amountPaid": 25.00
+  }'
+
+# Response:
+# {
+#   "success": true,
+#   "transactionId": 1,
+#   "paymentStatus": "ОПЛАТА ПРОШЛА УСПЕШНО ✓"
+# }
+
+# 2. Get energy consumption
+curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
+
+# 3. Stop charging
+curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
+```
+
+See [API_EXAMPLES.md](./API_EXAMPLES.md) for:
+- Complete curl examples
+- JavaScript/TypeScript integration
+- Python integration
+- Error handling
+- Postman collection
+
+## Using the Go Service API
+
+### In Your Payment Service (Go)
 
 ```go
 package main

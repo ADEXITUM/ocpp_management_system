@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ADEXITUM/ocpp_management_system/pkg/api"
 	"github.com/ADEXITUM/ocpp_management_system/pkg/database"
 	"github.com/ADEXITUM/ocpp_management_system/pkg/ocpp"
 	"github.com/ADEXITUM/ocpp_management_system/pkg/service"
@@ -21,11 +22,18 @@ func main() {
 	fmt.Println("═══════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Get port from environment or use default
-	port := 9000
+	// Get ports from environment or use defaults
+	ocppPort := 9000
 	if portEnv := os.Getenv("OCPP_PORT"); portEnv != "" {
 		if p, err := strconv.Atoi(portEnv); err == nil {
-			port = p
+			ocppPort = p
+		}
+	}
+
+	apiPort := 8080
+	if portEnv := os.Getenv("API_PORT"); portEnv != "" {
+		if p, err := strconv.Atoi(portEnv); err == nil {
+			apiPort = p
 		}
 	}
 
@@ -41,12 +49,14 @@ func main() {
 	}
 	fmt.Println()
 
-	// Create OCPP server
-	server := ocpp.NewServer(port, db)
+	// Create OCPP WebSocket server
+	ocppServer := ocpp.NewServer(ocppPort, db)
 
-	// Create charging service (for API usage)
-	chargingService := service.NewChargingService(db, server.GetConnectionManager())
-	_ = chargingService // Available for use
+	// Create charging service
+	chargingService := service.NewChargingService(db, ocppServer.GetConnectionManager())
+
+	// Create REST API server
+	apiServer := api.NewServer(apiPort, chargingService)
 
 	// Start periodic status display
 	go func() {
@@ -54,7 +64,7 @@ func main() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			displayStatus(db, server.GetConnectionManager())
+			displayStatus(db, ocppServer.GetConnectionManager())
 		}
 	}()
 
@@ -68,19 +78,21 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// Display API info
-	fmt.Println("📡 Service API Available:")
-	fmt.Println("   - chargingService.TurnOn(chargePointId, connectorId, userId)")
-	fmt.Println("   - chargingService.TurnOff(chargePointId, transactionId)")
-	fmt.Println("   - chargingService.GetEnergyConsumption(chargePointId, transactionId)")
+	fmt.Println("✅ System ready!")
 	fmt.Println()
 
-	fmt.Println("✅ System ready to accept charge point connections")
-	fmt.Printf("   Charge points should connect to: ws://<server-ip>:%d/<charge-point-id>\n", port)
-	fmt.Printf("   Example: ws://localhost:%d/CP001\n\n", port)
+	// Start REST API server in goroutine
+	go func() {
+		if err := apiServer.Start(); err != nil {
+			log.Fatalf("❌ Failed to start API server: %v", err)
+		}
+	}()
 
-	// Start server (blocking)
-	if err := server.Start(); err != nil {
+	// Give API server time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Start OCPP WebSocket server (blocking)
+	if err := ocppServer.Start(); err != nil {
 		log.Fatalf("❌ Failed to start OCPP server: %v", err)
 	}
 }
