@@ -14,6 +14,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins
 	},
+	Subprotocols: []string{"ocpp1.6", "ocpp2.0", "ocpp2.0.1"},
 }
 
 // Server is the OCPP WebSocket server
@@ -65,6 +66,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[OCPPServer] Failed to upgrade connection: %v", err)
 		return
+	}
+
+	// Log the negotiated subprotocol
+	if conn.Subprotocol() != "" {
+		log.Printf("            Subprotocol: %s", conn.Subprotocol())
 	}
 
 	// Register the connection
