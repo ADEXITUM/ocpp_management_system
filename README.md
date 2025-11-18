@@ -1,55 +1,78 @@
-# OCPP Management System
+# OCPP Management System (Go)
 
-A comprehensive OCPP 1.6J management system for EV charging stations with a simple, easy-to-use API for integration with payment services and other applications.
+A comprehensive OCPP 1.6J management system for EV charging stations written in **Go**, with a simple, easy-to-use API for integration with payment services and other applications.
 
 ## Features
 
 - **OCPP 1.6J Protocol Support** - Full WebSocket-based OCPP implementation
 - **Multiple Charge Point Management** - Handle connections from many charging stations simultaneously
-- **Simple API** - Easy-to-use methods for controlling charging sessions:
-  - `turnOn()` - Start charging
-  - `turnOff()` - Stop charging
-  - `getEnergyConsumption()` - Get real-time energy usage
+- **REST API** - HTTP endpoints for easy integration (see [API_EXAMPLES.md](./API_EXAMPLES.md)):
+  - `POST /sessions/start` - Start charging with payment
+  - `GET /sessions/{id}/energy` - Get current energy consumption
+  - `POST /sessions/{id}/stop` - Stop charging session
+- **Go Service API** - Programmatic API for Go applications:
+  - `TurnOn()` - Start charging
+  - `TurnOff()` - Stop charging
+  - `GetEnergyConsumption()` - Get real-time energy usage
 - **Comprehensive Error Handling** - Clear, user-friendly error messages
 - **Mock Database** - In-memory database (easily replaceable with PostgreSQL/MongoDB)
 - **Real-time Monitoring** - Track energy consumption and session status
 - **Unconfigured CP Detection** - Warns when unknown charge points connect
+- **High Performance** - Written in Go for excellent concurrency and performance
 
 ## Quick Start
 
 ### 1. Installation
 
 ```bash
-npm install
+# Clone the repository
+git clone <repo-url>
+cd ocpp_management_system
+
+# Download dependencies
+go mod download
 ```
 
-### 2. Start the OCPP Server
+### 2. Build the Server
 
 ```bash
-npm run dev
+go build -o ocpp-server cmd/server/main.go
 ```
 
-The server will start on `ws://0.0.0.0:9000` and display configured charge points:
+### 3. Start the OCPP Server
+
+```bash
+./ocpp-server
+# Or run directly:
+go run cmd/server/main.go
+```
+
+The server will start two services:
+- **OCPP WebSocket** on port `9000` (for charge points)
+- **REST API** on port `8080` (for your application)
 
 ```
-═══════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════
          OCPP Management System v1.0.0
-         OCPP 1.6J WebSocket Server
-═══════════════════════════════════════════════════════════
+         OCPP 1.6J WebSocket Server (Go)
+═══════════════════════════════════════════════════════
 
 📊 Configured Charge Points: 3
    - CP001: Main Street Station 1 (EVBox Elvi)
      Connectors: 2, Status: offline
-   - CP002: Shopping Mall Station (ABB Terra AC)
-     Connectors: 1, Status: offline
-   - CP003: Office Parking Charger (ChargePoint CPE250)
-     Connectors: 2, Status: offline
+
+✅ System ready!
+
+🌐 REST API listening on http://0.0.0.0:8080
+   POST   http://0.0.0.0:8080/sessions/start
+   GET    http://0.0.0.0:8080/sessions/{transactionId}/energy
+   POST   http://0.0.0.0:8080/sessions/{transactionId}/stop
 
 🔌 OCPP Server listening on ws://0.0.0.0:9000
    Waiting for charge points to connect...
 ```
 
-### 3. Connect Charge Points
+### 4. Connect Charge Points
 
 Charge points should connect to:
 ```
@@ -61,7 +84,7 @@ Examples:
 - `ws://localhost:9000/CP002`
 - `ws://localhost:9000/CP003`
 
-### 4. Use the Emulator for Testing
+### 5. Use the Emulator for Testing
 
 Clone and use the OCPP virtual charge point emulator:
 
@@ -74,49 +97,107 @@ npm install
 WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
 ```
 
-## Using the API
+## Using the REST API (Recommended)
 
-### In Your Payment Service
+The easiest way to control charging sessions is via REST API. See [API_EXAMPLES.md](./API_EXAMPLES.md) for complete examples.
 
-```typescript
-import { chargingService } from './src/services/charging-service';
-import { getUserFriendlyErrorMessage } from './src/errors/custom-errors';
+### Quick Example
 
-// After payment is approved, start charging
-async function startCharging(userId: string) {
-  try {
-    const result = await chargingService.turnOn(
-      'CP001',      // charge point ID
-      1,            // connector ID
-      userId        // user ID
-    );
+```bash
+# 1. Start charging session (with payment)
+curl -X POST http://localhost:8080/sessions/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chargePointId": "CP001",
+    "connectorId": 1,
+    "userId": "user-123",
+    "amountPaid": 25.00
+  }'
 
-    console.log(`Session started: ${result.transactionId}`);
-    return result.transactionId;
+# Response:
+# {
+#   "success": true,
+#   "transactionId": 1,
+#   "paymentStatus": "ОПЛАТА ПРОШЛА УСПЕШНО ✓"
+# }
 
-  } catch (error) {
-    // Get user-friendly error message to display
-    const message = getUserFriendlyErrorMessage(error);
-    console.error(message);
-    throw error;
-  }
+# 2. Get energy consumption
+curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
+
+# 3. Stop charging
+curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
+```
+
+See [API_EXAMPLES.md](./API_EXAMPLES.md) for:
+- Complete curl examples
+- JavaScript/TypeScript integration
+- Python integration
+- Error handling
+- Postman collection
+
+## Using the Go Service API
+
+### In Your Payment Service (Go)
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/ADEXITUM/ocpp_management_system/pkg/database"
+    "github.com/ADEXITUM/ocpp_management_system/pkg/errors"
+    "github.com/ADEXITUM/ocpp_management_system/pkg/ocpp"
+    "github.com/ADEXITUM/ocpp_management_system/pkg/service"
+)
+
+func main() {
+    // Initialize
+    db := database.NewMockDatabase()
+    server := ocpp.NewServer(9000, db)
+    chargingService := service.NewChargingService(db, server.GetConnectionManager())
+
+    // Start charging after payment approved
+    result, err := chargingService.TurnOn("CP001", 1, "user-123")
+    if err != nil {
+        handleError(err)
+        return
+    }
+
+    fmt.Printf("Session started: %d\n", result.TransactionID)
+
+    // Monitor energy consumption
+    consumption, err := chargingService.GetEnergyConsumption("CP001", result.TransactionID)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("Energy consumed: %.2f kWh\n", consumption.CurrentEnergyWh/1000)
+    fmt.Printf("Duration: %d seconds\n", consumption.DurationSeconds)
+
+    // Stop charging
+    stopResult, err := chargingService.TurnOff("CP001", result.TransactionID)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("Final energy: %.2f kWh\n", stopResult.EnergyConsumed/1000)
 }
 
-// Monitor energy consumption
-async function checkProgress(transactionId: number) {
-  const data = await chargingService.getEnergyConsumption('CP001', transactionId);
+func handleError(err error) {
+    if ocppErr, ok := err.(*errors.OCPPError); ok {
+        fmt.Println("Error:", ocppErr.UserMessage)
 
-  console.log(`Energy consumed: ${data.currentEnergyWh / 1000} kWh`);
-  console.log(`Duration: ${data.durationSeconds} seconds`);
-  console.log(`Status: ${data.status}`);
-}
-
-// Stop charging
-async function stopCharging(transactionId: number) {
-  const result = await chargingService.turnOff('CP001', transactionId);
-
-  console.log(`Energy consumed: ${result.energyConsumed / 1000} kWh`);
-  console.log(`Duration: ${result.duration} seconds`);
+        switch ocppErr.Code {
+        case "CHARGE_POINT_NOT_FOUND":
+            // Handle: refund payment, notify user
+        case "CHARGE_POINT_OFFLINE":
+            // Handle: refund payment, suggest another station
+        case "CONNECTOR_UNAVAILABLE":
+            // Handle: refund payment, suggest another connector
+        }
+    }
 }
 ```
 
@@ -124,97 +205,99 @@ async function stopCharging(transactionId: number) {
 
 The system provides clear, user-friendly error messages:
 
-```typescript
-import {
-  ChargePointNotFoundError,
-  ChargePointOfflineError,
-  ConnectorUnavailableError,
-  SessionNotFoundError
-} from './src/errors/custom-errors';
+```go
+import "github.com/ADEXITUM/ocpp_management_system/pkg/errors"
 
-try {
-  await chargingService.turnOn('CP001', 1, 'user-123');
-} catch (error) {
-  if (error instanceof ChargePointNotFoundError) {
-    // Display: "This charging station is not configured in the system..."
-  } else if (error instanceof ChargePointOfflineError) {
-    // Display: "This charging station is currently offline..."
-  } else if (error instanceof ConnectorUnavailableError) {
-    // Display: "This connector is currently in use..."
-  }
+result, err := chargingService.TurnOn("CP001", 1, "user-123")
+if err != nil {
+    // Get user-friendly message
+    userMessage := errors.GetUserFriendlyMessage(err)
+    fmt.Println(userMessage)
+
+    // Or type-check for specific errors
+    if ocppErr, ok := err.(*errors.OCPPError); ok {
+        switch ocppErr.Code {
+        case "CHARGE_POINT_NOT_FOUND":
+            // "This charging station is not configured in the system..."
+        case "CHARGE_POINT_OFFLINE":
+            // "This charging station is currently offline..."
+        case "CONNECTOR_UNAVAILABLE":
+            // "This connector is currently in use..."
+        }
+    }
 }
 ```
 
 ## API Reference
 
-### `chargingService.turnOn(chargePointId, connectorId, userId)`
+### `TurnOn(chargePointID, connectorID, userID)`
 
 Start a charging session.
 
 **Parameters:**
-- `chargePointId` (string) - ID of the charge point
-- `connectorId` (number) - Connector number (1, 2, etc.)
-- `userId` (string) - User/customer ID
+- `chargePointID` (string) - ID of the charge point
+- `connectorID` (int) - Connector number (1, 2, etc.)
+- `userID` (string) - User/customer ID
 
-**Returns:** `Promise<TurnOnResult>`
-```typescript
-{
-  success: boolean;
-  transactionId: number;
-  chargePointId: string;
-  connectorId: number;
-  userId: string;
-  message: string;
+**Returns:** `*TurnOnResult, error`
+```go
+type TurnOnResult struct {
+    Success       bool
+    TransactionID int
+    ChargePointID string
+    ConnectorID   int
+    UserID        string
+    Message       string
 }
 ```
 
-**Throws:**
+**Errors:**
 - `ChargePointNotFoundError` - Charge point not in database
 - `ChargePointOfflineError` - Charge point not connected
 - `ConnectorNotFoundError` - Connector doesn't exist
 - `ConnectorUnavailableError` - Connector busy/faulted
 - `SessionAlreadyActiveError` - Connector already has active session
 
-### `chargingService.turnOff(chargePointId, transactionId)`
+### `TurnOff(chargePointID, transactionID)`
 
 Stop a charging session.
 
 **Parameters:**
-- `chargePointId` (string) - ID of the charge point
-- `transactionId` (number) - Transaction ID to stop
+- `chargePointID` (string) - ID of the charge point
+- `transactionID` (int) - Transaction ID to stop
 
-**Returns:** `Promise<TurnOffResult>`
-```typescript
-{
-  success: boolean;
-  transactionId: number;
-  chargePointId: string;
-  energyConsumed: number;  // in Wh
-  duration: number;        // in seconds
-  message: string;
+**Returns:** `*TurnOffResult, error`
+```go
+type TurnOffResult struct {
+    Success        bool
+    TransactionID  int
+    ChargePointID  string
+    EnergyConsumed float64  // in Wh
+    Duration       int      // in seconds
+    Message        string
 }
 ```
 
-### `chargingService.getEnergyConsumption(chargePointId, transactionId)`
+### `GetEnergyConsumption(chargePointID, transactionID)`
 
 Get current energy consumption for a session.
 
 **Parameters:**
-- `chargePointId` (string) - ID of the charge point
-- `transactionId` (number) - Transaction ID
+- `chargePointID` (string) - ID of the charge point
+- `transactionID` (int) - Transaction ID
 
-**Returns:** `Promise<EnergyConsumptionResult>`
-```typescript
-{
-  transactionId: number;
-  chargePointId: string;
-  connectorId: number;
-  userId: string;
-  startTime: Date;
-  currentEnergyWh: number;
-  durationSeconds: number;
-  status: 'active' | 'completed';
-  lastUpdate: Date;
+**Returns:** `*EnergyConsumptionResult, error`
+```go
+type EnergyConsumptionResult struct {
+    TransactionID   int
+    ChargePointID   string
+    ConnectorID     int
+    UserID          string
+    StartTime       time.Time
+    CurrentEnergyWh float64
+    DurationSeconds int
+    Status          string  // "active" or "completed"
+    LastUpdate      time.Time
 }
 ```
 
@@ -222,25 +305,27 @@ Get current energy consumption for a session.
 
 ```
 ocpp_management_system/
-├── src/
+├── cmd/
+│   └── server/
+│       └── main.go                # Main entry point
+├── pkg/
 │   ├── types/
-│   │   ├── ocpp-types.ts          # OCPP protocol types
-│   │   └── domain-types.ts        # Domain model types
+│   │   └── ocpp_types.go          # OCPP protocol types & domain types
 │   ├── errors/
-│   │   └── custom-errors.ts       # Custom error classes
+│   │   └── errors.go              # Custom error types
 │   ├── database/
-│   │   └── mock-database.ts       # In-memory database
+│   │   └── mock_database.go       # In-memory database
 │   ├── ocpp/
-│   │   ├── ocpp-server.ts         # WebSocket server
-│   │   ├── connection-manager.ts  # Connection management
-│   │   └── message-handlers.ts    # OCPP message handlers
-│   ├── services/
-│   │   └── charging-service.ts    # Simple API (turnOn/turnOff/getEnergy)
-│   └── index.ts                   # Main entry point
+│   │   ├── server.go              # WebSocket server
+│   │   ├── connection_manager.go  # Connection management
+│   │   └── message_handlers.go    # OCPP message handlers
+│   └── service/
+│       └── charging_service.go    # Simple API (TurnOn/TurnOff/GetEnergy)
 ├── examples/
-│   └── payment-service-example.ts # Example integration
+│   └── payment_service_example.go # Example integration
 ├── OCPP_1.6J_GUIDE.md            # OCPP protocol documentation
 ├── ARCHITECTURE.md                # System architecture
+├── go.mod                         # Go module file
 └── README.md                      # This file
 ```
 
@@ -251,11 +336,11 @@ The system is built in layers:
 ```
 ┌─────────────────────────────────────────────┐
 │     Application Layer (Payment Service)     │
-│  Uses: turnOn(), turnOff(), getEnergy()     │
+│  Uses: TurnOn(), TurnOff(), GetEnergy()     │
 └─────────────────┬───────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────┐
-│         Service Wrapper (Simple API)        │
+│         Service Package (Simple API)        │
 │   Hides OCPP complexity                     │
 └─────────────────┬───────────────────────────┘
                   │
@@ -274,28 +359,29 @@ The system is built in layers:
 
 ### Environment Variables
 
-Create a `.env` file:
+Set environment variables or create a `.env` file:
 
-```env
-OCPP_PORT=9000
+```bash
+export OCPP_PORT=9000
 ```
 
 ### Adding Charge Points
 
-Edit `src/database/mock-database.ts` to add your charge points:
+Edit `pkg/database/mock_database.go` to add your charge points:
 
-```typescript
-const cp: ChargePoint = {
-  id: 'CP004',
-  name: 'My New Station',
-  vendor: 'MyVendor',
-  model: 'Model-X',
-  numberOfConnectors: 2,
-  status: 'offline',
-  registrationStatus: 'accepted',
-  lastSeen: new Date(),
-  createdAt: new Date()
-};
+```go
+cp := &types.ChargePoint{
+    ID:                 "CP004",
+    Name:               "My New Station",
+    Vendor:             "MyVendor",
+    Model:              "Model-X",
+    NumberOfConnectors: 2,
+    Status:             "offline",
+    RegistrationStatus: "accepted",
+    LastSeen:           time.Now(),
+    CreatedAt:          time.Now(),
+}
+db.chargePoints[cp.ID] = cp
 ```
 
 Or replace the mock database with a real database (PostgreSQL, MongoDB, etc.).
@@ -336,17 +422,18 @@ If a charge point connects but is not in the database, the system will:
 ### Run Example
 
 ```bash
-npm run dev
+# Terminal 1: Start server
+go run cmd/server/main.go
 
-# In another terminal
-npx ts-node examples/payment-service-example.ts
+# Terminal 2: Run example
+go run examples/payment_service_example.go
 ```
 
 ### Manual Testing
 
 ```bash
 # Start server
-npm run dev
+go run cmd/server/main.go
 
 # In another terminal, connect emulator
 cd ocpp-virtual-charge-point
@@ -363,18 +450,19 @@ For production:
 1. **Replace Mock Database** - Use PostgreSQL, MongoDB, or your preferred database
 2. **Add Authentication** - Implement charge point authentication
 3. **Add User Database** - Store and validate user credentials
-4. **Scale WebSocket Server** - Use clustering for high availability
+4. **Scale WebSocket Server** - Use load balancing for high availability
 5. **Add Monitoring** - Prometheus, Grafana, etc.
 6. **SSL/TLS** - Use WSS (secure WebSocket)
+7. **Build optimized binary** - `go build -ldflags="-s -w" cmd/server/main.go`
 
 ## Extensibility
 
 The system is designed to be easily extended:
 
-- **Add new OCPP messages** - Edit `message-handlers.ts`
-- **Add business logic** - Extend `charging-service.ts`
-- **Replace database** - Implement the same interface as `mock-database.ts`
-- **Add middleware** - Modify `ocpp-server.ts` for authentication, logging, etc.
+- **Add new OCPP messages** - Edit `pkg/ocpp/message_handlers.go`
+- **Add business logic** - Extend `pkg/service/charging_service.go`
+- **Replace database** - Implement the same interface as `pkg/database/mock_database.go`
+- **Add middleware** - Modify `pkg/ocpp/server.go` for authentication, logging, etc.
 
 ## Troubleshooting
 
@@ -386,13 +474,21 @@ The system is designed to be easily extended:
 
 ### "Charge point not configured" error
 
-Add the charge point to the database in `src/database/mock-database.ts`
+Add the charge point to the database in `pkg/database/mock_database.go`
 
 ### Energy consumption not updating
 
 1. Ensure charge point sends `MeterValues` messages
 2. Check that `transactionId` is included in `MeterValues`
 3. Verify measurand is `Energy.Active.Import.Register`
+
+## Performance
+
+Go's excellent concurrency support makes this system highly performant:
+- Goroutines handle each charge point connection independently
+- Efficient memory usage with typed structs
+- Fast JSON marshaling/unmarshaling
+- Low latency WebSocket communication
 
 ## License
 
