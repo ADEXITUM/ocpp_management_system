@@ -84,8 +84,9 @@ func (s *ChargingService) TurnOn(
 		return nil, errors.NewRemoteOperationFailedError("start", chargePointID, "Rejected by charge point")
 	}
 
-	// 8. Wait for the StartTransaction message from the charge point
-	session, err := s.waitForSessionStart(chargePointID, connectorID, 10*time.Second)
+	// 8. Wait for the StartTransaction message from the charge point.
+	// Real devices/testers can take longer between RemoteStart acceptance and StartTransaction.
+	session, err := s.waitForSessionStart(chargePointID, connectorID, 90*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -310,5 +311,5 @@ func isTimeoutError(err error) bool {
 		return false
 	}
 	return err.Error() == "request timeout" ||
-		   (len(err.Error()) > 15 && err.Error()[:15] == "request timeout")
+		(len(err.Error()) > 15 && err.Error()[:15] == "request timeout")
 }

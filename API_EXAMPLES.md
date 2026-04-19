@@ -9,17 +9,17 @@ go run cmd/server/main.go
 ```
 
 Сервер запустит:
-- **OCPP WebSocket** на порту `9000` (для зарядных станций)
-- **REST API** на порту `8080` (для вашего приложения)
+- **OCPP WebSocket** на порту `9005` (для зарядных станций)
+- **REST API** на порту `8000` (для вашего приложения)
 
 ## Эндпоинты
 
 ### 1. Начать зарядную сессию (с оплатой)
 
-**POST** `http://localhost:8080/sessions/start`
+**POST** `http://localhost:8000/sessions/start`
 
 ```bash
-curl -X POST http://localhost:8080/sessions/start \
+curl -X POST http://localhost:8000/sessions/start \
   -H "Content-Type: application/json" \
   -d '{
     "chargePointId": "CP001",
@@ -54,10 +54,10 @@ curl -X POST http://localhost:8080/sessions/start \
 
 ### 2. Получить текущее потребление энергии
 
-**GET** `http://localhost:8080/sessions/{transactionId}/energy?chargePointId=CP001`
+**GET** `http://localhost:8000/sessions/{transactionId}/energy?chargePointId=CP001`
 
 ```bash
-curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
+curl "http://localhost:8000/sessions/1/energy?chargePointId=CP001"
 ```
 
 **Ответ:**
@@ -79,10 +79,10 @@ curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
 
 ### 3. Остановить зарядную сессию
 
-**POST** `http://localhost:8080/sessions/{transactionId}/stop?chargePointId=CP001`
+**POST** `http://localhost:8000/sessions/{transactionId}/stop?chargePointId=CP001`
 
 ```bash
-curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
+curl -X POST "http://localhost:8000/sessions/1/stop?chargePointId=CP001"
 ```
 
 **Ответ:**
@@ -102,10 +102,10 @@ curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
 
 ### 4. Проверить здоровье сервиса
 
-**GET** `http://localhost:8080/health`
+**GET** `http://localhost:8000/health`
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8000/health
 ```
 
 **Ответ:**
@@ -130,7 +130,7 @@ go run cmd/server/main.go
 ```bash
 # Terminal 2
 cd ocpp-virtual-charge-point
-WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
+WS_URL=ws://localhost:9005/CP001 npx tsx index_16.ts
 ```
 
 ### Шаг 3: Использовать API
@@ -139,7 +139,7 @@ WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
 # Terminal 3
 
 # 1. Начать сессию (с оплатой)
-curl -X POST http://localhost:8080/sessions/start \
+curl -X POST http://localhost:8000/sessions/start \
   -H "Content-Type: application/json" \
   -d '{
     "chargePointId": "CP001",
@@ -151,10 +151,10 @@ curl -X POST http://localhost:8080/sessions/start \
 # Сохраните transactionId из ответа (например, 1)
 
 # 2. Проверить энергию (подождите несколько секунд)
-curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
+curl "http://localhost:8000/sessions/1/energy?chargePointId=CP001"
 
 # 3. Остановить сессию
-curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
+curl -X POST "http://localhost:8000/sessions/1/stop?chargePointId=CP001"
 ```
 
 ## Коды ошибок
@@ -173,11 +173,11 @@ curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
 ## Переменные окружения
 
 ```bash
-# OCPP WebSocket порт (по умолчанию 9000)
-export OCPP_PORT=9000
+# OCPP WebSocket порт (по умолчанию 9005)
+export OCPP_PORT=9005
 
-# REST API порт (по умолчанию 8080)
-export API_PORT=8080
+# REST API порт (по умолчанию 8000)
+export API_PORT=8000
 ```
 
 ## Тестирование с Postman
@@ -200,7 +200,7 @@ export API_PORT=8080
           "mode": "raw",
           "raw": "{\n  \"chargePointId\": \"CP001\",\n  \"connectorId\": 1,\n  \"userId\": \"user-123\",\n  \"amountPaid\": 25.00\n}"
         },
-        "url": "http://localhost:8080/sessions/start"
+        "url": "http://localhost:8000/sessions/start"
       }
     },
     {
@@ -208,7 +208,7 @@ export API_PORT=8080
       "request": {
         "method": "GET",
         "url": {
-          "raw": "http://localhost:8080/sessions/1/energy?chargePointId=CP001",
+          "raw": "http://localhost:8000/sessions/1/energy?chargePointId=CP001",
           "query": [{"key": "chargePointId", "value": "CP001"}]
         }
       }
@@ -218,7 +218,7 @@ export API_PORT=8080
       "request": {
         "method": "POST",
         "url": {
-          "raw": "http://localhost:8080/sessions/1/stop?chargePointId=CP001",
+          "raw": "http://localhost:8000/sessions/1/stop?chargePointId=CP001",
           "query": [{"key": "chargePointId", "value": "CP001"}]
         }
       }
@@ -232,7 +232,7 @@ export API_PORT=8080
 ```typescript
 // Начать сессию
 async function startChargingSession(userId: string, amount: number) {
-  const response = await fetch('http://localhost:8080/sessions/start', {
+  const response = await fetch('http://localhost:8000/sessions/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -258,7 +258,7 @@ async function startChargingSession(userId: string, amount: number) {
 // Получить энергию
 async function getEnergy(transactionId: number) {
   const response = await fetch(
-    `http://localhost:8080/sessions/${transactionId}/energy?chargePointId=CP001`
+    `http://localhost:8000/sessions/${transactionId}/energy?chargePointId=CP001`
   );
 
   const data = await response.json();
@@ -270,7 +270,7 @@ async function getEnergy(transactionId: number) {
 // Остановить сессию
 async function stopSession(transactionId: number) {
   const response = await fetch(
-    `http://localhost:8080/sessions/${transactionId}/stop?chargePointId=CP001`,
+    `http://localhost:8000/sessions/${transactionId}/stop?chargePointId=CP001`,
     { method: 'POST' }
   );
 
@@ -305,7 +305,7 @@ async function stopSession(transactionId: number) {
 import requests
 import time
 
-BASE_URL = "http://localhost:8080"
+BASE_URL = "http://localhost:8000"
 
 # Начать сессию
 def start_session(user_id, amount):

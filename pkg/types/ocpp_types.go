@@ -49,15 +49,16 @@ const (
 
 // OCPP Actions
 const (
-	ActionBootNotification      = "BootNotification"
-	ActionHeartbeat             = "Heartbeat"
-	ActionStatusNotification    = "StatusNotification"
-	ActionMeterValues           = "MeterValues"
-	ActionStartTransaction      = "StartTransaction"
-	ActionStopTransaction       = "StopTransaction"
-	ActionAuthorize             = "Authorize"
+	ActionBootNotification       = "BootNotification"
+	ActionHeartbeat              = "Heartbeat"
+	ActionStatusNotification     = "StatusNotification"
+	ActionMeterValues            = "MeterValues"
+	ActionStartTransaction       = "StartTransaction"
+	ActionStopTransaction        = "StopTransaction"
+	ActionAuthorize              = "Authorize"
 	ActionRemoteStartTransaction = "RemoteStartTransaction"
 	ActionRemoteStopTransaction  = "RemoteStopTransaction"
+	ActionGetConfiguration       = "GetConfiguration"
 )
 
 // BootNotification Request/Response
@@ -125,17 +126,17 @@ type MeterValuesResponse struct{}
 
 // StartTransaction Request/Response
 type StartTransactionRequest struct {
-	ConnectorID   int     `json:"connectorId"`
-	IDTag         string  `json:"idTag"`
-	MeterStart    int     `json:"meterStart"`
-	Timestamp     string  `json:"timestamp"`
-	ReservationID *int    `json:"reservationId,omitempty"`
+	ConnectorID   int    `json:"connectorId"`
+	IDTag         string `json:"idTag"`
+	MeterStart    int    `json:"meterStart"`
+	Timestamp     string `json:"timestamp"`
+	ReservationID *int   `json:"reservationId,omitempty"`
 }
 
 type IDTagInfo struct {
-	Status       string  `json:"status"`
-	ExpiryDate   *string `json:"expiryDate,omitempty"`
-	ParentIDTag  *string `json:"parentIdTag,omitempty"`
+	Status      string  `json:"status"`
+	ExpiryDate  *string `json:"expiryDate,omitempty"`
+	ParentIDTag *string `json:"parentIdTag,omitempty"`
 }
 
 type StartTransactionResponse struct {
@@ -145,12 +146,12 @@ type StartTransactionResponse struct {
 
 // StopTransaction Request/Response
 type StopTransactionRequest struct {
-	TransactionID   int           `json:"transactionId"`
-	IDTag           *string       `json:"idTag,omitempty"`
-	MeterStop       int           `json:"meterStop"`
-	Timestamp       string        `json:"timestamp"`
-	Reason          *string       `json:"reason,omitempty"`
-	TransactionData []MeterValue  `json:"transactionData,omitempty"`
+	TransactionID   int          `json:"transactionId"`
+	IDTag           *string      `json:"idTag,omitempty"`
+	MeterStop       int          `json:"meterStop"`
+	Timestamp       string       `json:"timestamp"`
+	Reason          *string      `json:"reason,omitempty"`
+	TransactionData []MeterValue `json:"transactionData,omitempty"`
 }
 
 type StopTransactionResponse struct {
@@ -168,8 +169,8 @@ type AuthorizeResponse struct {
 
 // RemoteStartTransaction Request/Response
 type RemoteStartTransactionRequest struct {
-	IDTag          string      `json:"idTag"`
-	ConnectorID    *int        `json:"connectorId,omitempty"`
+	IDTag           string      `json:"idTag"`
+	ConnectorID     *int        `json:"connectorId,omitempty"`
 	ChargingProfile interface{} `json:"chargingProfile,omitempty"`
 }
 
@@ -184,6 +185,22 @@ type RemoteStopTransactionRequest struct {
 
 type RemoteStopTransactionResponse struct {
 	Status string `json:"status"`
+}
+
+// GetConfiguration Request/Response
+type GetConfigurationRequest struct {
+	Key []string `json:"key,omitempty"`
+}
+
+type ConfigurationKey struct {
+	Key      string  `json:"key"`
+	Readonly bool    `json:"readonly"`
+	Value    *string `json:"value,omitempty"`
+}
+
+type GetConfigurationResponse struct {
+	ConfigurationKey []ConfigurationKey `json:"configurationKey,omitempty"`
+	UnknownKey       []string           `json:"unknownKey,omitempty"`
 }
 
 // Domain Types
@@ -245,12 +262,12 @@ type TurnOnResult struct {
 }
 
 type TurnOffResult struct {
-	Success       bool
-	TransactionID int
-	ChargePointID string
+	Success        bool
+	TransactionID  int
+	ChargePointID  string
 	EnergyConsumed float64
-	Duration      int
-	Message       string
+	Duration       int
+	Message        string
 }
 
 type EnergyConsumptionResult struct {

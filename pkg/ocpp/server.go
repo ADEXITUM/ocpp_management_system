@@ -14,7 +14,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins
 	},
-	Subprotocols: []string{"ocpp1.6", "ocpp2.0", "ocpp2.0.1"},
+	Subprotocols: []string{"ocpp1.6", "ocpp1.6j", "ocpp16", "ocpp2.0", "ocpp2.0.1"},
 }
 
 // Server is the OCPP WebSocket server
@@ -36,15 +36,30 @@ func (s *Server) GetConnectionManager() *ConnectionManager {
 	return s.connectionManager
 }
 
-// Start starts the OCPP WebSocket server
-func (s *Server) Start() error {
-	http.HandleFunc("/", s.handleWebSocket)
+func (s *Server) newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleWebSocket)
+	return mux
+}
 
+// Start starts the OCPP WebSocket server (plain WS)
+func (s *Server) Start() error {
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	log.Printf("🔌 OCPP Server listening on ws://%s", addr)
 	log.Printf("   Waiting for charge points to connect...")
 
-	return http.ListenAndServe(addr, nil)
+	return http.ListenAndServe(addr, s.newMux())
+}
+
+// StartTLS starts the OCPP WebSocket server over TLS (WSS)
+func (s *Server) StartTLS(port int, certFile, keyFile string) error {
+	addr := fmt.Sprintf("0.0.0.0:%d", port)
+	log.Printf("🔐 OCPP TLS server listening on wss://%s", addr)
+	log.Printf("   Certificate: %s", certFile)
+	log.Printf("   Key: %s", keyFile)
+	log.Printf("   Waiting for charge points to connect (TLS)...")
+
+	return http.ListenAndServeTLS(addr, certFile, keyFile, s.newMux())
 }
 
 // handleWebSocket handles WebSocket connections from charge points
@@ -60,6 +75,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[OCPPServer] New connection from %s", chargePointID)
 	log.Printf("            Remote address: %s", r.RemoteAddr)
+	if requested := r.Header.Get("Sec-WebSocket-Protocol"); requested != "" {
+		log.Printf("            Requested subprotocol(s): %s", requested)
+	}
 
 	// Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)

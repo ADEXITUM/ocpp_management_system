@@ -43,7 +43,7 @@ func (h *MessageHandlers) HandleBootNotification(
 			Model:              req.ChargePointModel,
 			SerialNumber:       getStringOrEmpty(req.ChargePointSerialNumber),
 			FirmwareVersion:    getStringOrEmpty(req.FirmwareVersion),
-			NumberOfConnectors: 1,
+			NumberOfConnectors: 0,
 			Status:             "online",
 			RegistrationStatus: "pending",
 			LastSeen:           time.Now(),
@@ -93,6 +93,7 @@ func (h *MessageHandlers) HandleStatusNotification(
 		chargePointID, req.ConnectorID, req.Status, req.ErrorCode)
 
 	h.db.UpdateConnectorStatus(chargePointID, req.ConnectorID, req.Status)
+	h.ensureConnectorObserved(chargePointID, req.ConnectorID)
 
 	// Update charge point connector count if needed
 	cp := h.db.GetChargePoint(chargePointID)
@@ -120,8 +121,10 @@ func (h *MessageHandlers) HandleMeterValues(
 ) types.MeterValuesResponse {
 	if req.TransactionID == nil {
 		// No transaction, just periodic meter values
+		h.ensureConnectorObserved(chargePointID, req.ConnectorID)
 		return types.MeterValuesResponse{}
 	}
+	h.ensureConnectorObserved(chargePointID, req.ConnectorID)
 
 	transactionID := *req.TransactionID
 
@@ -222,6 +225,7 @@ func (h *MessageHandlers) HandleStartTransaction(
 	// Update connector
 	h.db.SetConnectorTransaction(chargePointID, req.ConnectorID, &transactionID)
 	h.db.UpdateConnectorStatus(chargePointID, req.ConnectorID, types.StatusCharging)
+	h.ensureConnectorObserved(chargePointID, req.ConnectorID)
 
 	log.Printf("[StartTransaction] Created transaction %d", transactionID)
 
@@ -307,4 +311,20 @@ func getStringOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func (h *MessageHandlers) ensureConnectorObserved(chargePointID string, connectorID int) {
+	if connectorID <= 0 {
+		return
+	}
+
+	cp := h.db.GetChargePoint(chargePointID)
+	if cp == nil {
+		return
+	}
+
+	if connectorID > cp.NumberOfConnectors {
+		cp.NumberOfConnectors = connectorID
+		h.db.UpsertChargePoint(cp)
+	}
 }

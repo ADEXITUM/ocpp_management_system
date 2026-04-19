@@ -23,19 +23,28 @@ func main() {
 	fmt.Println()
 
 	// Get ports from environment or use defaults
-	ocppPort := 9000
+	ocppPort := 9005
 	if portEnv := os.Getenv("OCPP_PORT"); portEnv != "" {
 		if p, err := strconv.Atoi(portEnv); err == nil {
 			ocppPort = p
 		}
 	}
 
-	apiPort := 8080
+	apiPort := 8000
 	if portEnv := os.Getenv("API_PORT"); portEnv != "" {
 		if p, err := strconv.Atoi(portEnv); err == nil {
 			apiPort = p
 		}
 	}
+
+	ocppTLSPort := 9443
+	if portEnv := os.Getenv("OCPP_TLS_PORT"); portEnv != "" {
+		if p, err := strconv.Atoi(portEnv); err == nil {
+			ocppTLSPort = p
+		}
+	}
+	ocppTLSCert := os.Getenv("OCPP_TLS_CERT")
+	ocppTLSKey := os.Getenv("OCPP_TLS_KEY")
 
 	// Initialize database
 	db := database.NewMockDatabase()
@@ -51,12 +60,13 @@ func main() {
 
 	// Create OCPP WebSocket server
 	ocppServer := ocpp.NewServer(ocppPort, db)
+	connectionManager := ocppServer.GetConnectionManager()
 
 	// Create charging service
-	chargingService := service.NewChargingService(db, ocppServer.GetConnectionManager())
+	chargingService := service.NewChargingService(db, connectionManager)
 
 	// Create REST API server
-	apiServer := api.NewServer(apiPort, chargingService)
+	apiServer := api.NewServer(apiPort, chargingService, db, connectionManager)
 
 	// Start periodic status display
 	go func() {
@@ -87,6 +97,17 @@ func main() {
 			log.Fatalf("❌ Failed to start API server: %v", err)
 		}
 	}()
+
+	// Start OCPP TLS server in goroutine when certificate is configured
+	if ocppTLSCert != "" && ocppTLSKey != "" {
+		go func() {
+			if err := ocppServer.StartTLS(ocppTLSPort, ocppTLSCert, ocppTLSKey); err != nil {
+				log.Fatalf("❌ Failed to start OCPP TLS server: %v", err)
+			}
+		}()
+	} else {
+		fmt.Println("ℹ️  WSS disabled (set OCPP_TLS_CERT and OCPP_TLS_KEY to enable)")
+	}
 
 	// Give API server time to start
 	time.Sleep(500 * time.Millisecond)

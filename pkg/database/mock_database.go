@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,7 +16,23 @@ type MockDatabase struct {
 	connectors           map[string]*types.Connector // key: "cpId:connectorId"
 	sessions             map[int]*types.ChargingSession
 	energyReadings       map[int][]*types.EnergyReading // key: transactionId
+	events               []*TimelineEvent
 	transactionIDCounter int
+	eventIDCounter       int
+}
+
+// TimelineEvent stores operational history for the learning dashboard.
+type TimelineEvent struct {
+	ID            int                    `json:"id"`
+	Timestamp     string                 `json:"timestamp"`
+	Source        string                 `json:"source"`
+	Level         string                 `json:"level"`
+	Action        string                 `json:"action"`
+	ChargePointID string                 `json:"chargePointId,omitempty"`
+	ConnectorID   *int                   `json:"connectorId,omitempty"`
+	TransactionID *int                   `json:"transactionId,omitempty"`
+	Message       string                 `json:"message"`
+	Details       map[string]interface{} `json:"details,omitempty"`
 }
 
 // NewMockDatabase creates a new mock database with sample data
@@ -24,7 +42,9 @@ func NewMockDatabase() *MockDatabase {
 		connectors:           make(map[string]*types.Connector),
 		sessions:             make(map[int]*types.ChargingSession),
 		energyReadings:       make(map[int][]*types.EnergyReading),
+		events:               make([]*TimelineEvent, 0, 256),
 		transactionIDCounter: 1,
+		eventIDCounter:       1,
 	}
 	db.initializeMockData()
 	return db
@@ -33,83 +53,37 @@ func NewMockDatabase() *MockDatabase {
 func (db *MockDatabase) initializeMockData() {
 	now := time.Now()
 
-	// Sample Charge Point 1
-	cp1 := &types.ChargePoint{
-		ID:                 "CP001",
-		Name:               "Main Street Station 1",
-		Vendor:             "EVBox",
-		Model:              "Elvi",
-		SerialNumber:       "EVB-001-2024",
-		FirmwareVersion:    "1.0.0",
-		NumberOfConnectors: 2,
+	// Single preconfigured charge point for focused station testing.
+	cp := &types.ChargePoint{
+		ID:                 "my-test",
+		Name:               "Local Test Charge Point",
+		Vendor:             "ETEK",
+		Model:              "TestModel",
+		NumberOfConnectors: 0,
 		Status:             "offline",
 		RegistrationStatus: "accepted",
 		LastSeen:           now,
 		CreatedAt:          now,
 	}
-	db.chargePoints[cp1.ID] = cp1
+	db.chargePoints[cp.ID] = cp
 
-	for i := 1; i <= cp1.NumberOfConnectors; i++ {
-		connector := &types.Connector{
-			ChargePointID:    cp1.ID,
-			ConnectorID:      i,
-			Status:           types.StatusAvailable,
-			LastStatusUpdate: now,
-		}
-		db.connectors[connectorKey(cp1.ID, i)] = connector
-	}
-
-	// Sample Charge Point 2
-	cp2 := &types.ChargePoint{
-		ID:                 "CP002",
-		Name:               "Shopping Mall Station",
-		Vendor:             "ABB",
-		Model:              "Terra AC",
-		SerialNumber:       "ABB-002-2024",
-		FirmwareVersion:    "2.1.3",
-		NumberOfConnectors: 1,
-		Status:             "offline",
-		RegistrationStatus: "accepted",
-		LastSeen:           now,
-		CreatedAt:          now,
-	}
-	db.chargePoints[cp2.ID] = cp2
-
-	connector2 := &types.Connector{
-		ChargePointID:    cp2.ID,
-		ConnectorID:      1,
-		Status:           types.StatusAvailable,
-		LastStatusUpdate: now,
-	}
-	db.connectors[connectorKey(cp2.ID, 1)] = connector2
-
-	// Sample Charge Point 3
-	cp3 := &types.ChargePoint{
-		ID:                 "CP003",
-		Name:               "Office Parking Charger",
-		Vendor:             "ChargePoint",
-		Model:              "CPE250",
-		NumberOfConnectors: 2,
-		Status:             "offline",
-		RegistrationStatus: "accepted",
-		LastSeen:           now,
-		CreatedAt:          now,
-	}
-	db.chargePoints[cp3.ID] = cp3
-
-	for i := 1; i <= cp3.NumberOfConnectors; i++ {
-		connector := &types.Connector{
-			ChargePointID:    cp3.ID,
-			ConnectorID:      i,
-			Status:           types.StatusAvailable,
-			LastStatusUpdate: now,
-		}
-		db.connectors[connectorKey(cp3.ID, i)] = connector
-	}
+	db.AddEvent(
+		"system",
+		"info",
+		"DatabaseInitialized",
+		"Mock database initialized with only my-test charge point (connectors are discovered dynamically)",
+		"my-test",
+		nil,
+		nil,
+		map[string]interface{}{
+			"numberOfConnectors": 0,
+			"registrationStatus": "accepted",
+		},
+	)
 }
 
 func connectorKey(chargePointID string, connectorID int) string {
-	return chargePointID + ":" + string(rune(connectorID+'0'))
+	return chargePointID + ":" + strconv.Itoa(connectorID)
 }
 
 // ChargePoint methods
@@ -169,6 +143,11 @@ func (db *MockDatabase) GetConnectorsByChargePoint(chargePointID string) []*type
 }
 
 func (db *MockDatabase) UpdateConnectorStatus(chargePointID string, connectorID int, status string) {
+	// connectorId=0 is a charge-point level status in OCPP 1.6, not a physical connector.
+	if connectorID <= 0 {
+		return
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -188,13 +167,70 @@ func (db *MockDatabase) UpdateConnectorStatus(chargePointID string, connectorID 
 }
 
 func (db *MockDatabase) SetConnectorTransaction(chargePointID string, connectorID int, transactionID *int) {
+	if connectorID <= 0 {
+		return
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
 	key := connectorKey(chargePointID, connectorID)
 	if connector, ok := db.connectors[key]; ok {
 		connector.CurrentTransaction = transactionID
+		return
 	}
+
+	db.connectors[key] = &types.Connector{
+		ChargePointID:      chargePointID,
+		ConnectorID:        connectorID,
+		Status:             "Unknown",
+		CurrentTransaction: transactionID,
+		LastStatusUpdate:   time.Now(),
+	}
+}
+
+func (db *MockDatabase) SyncConnectorCount(chargePointID string, count int) (int, int, error) {
+	if count < 0 {
+		return 0, 0, fmt.Errorf("connector count cannot be negative")
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	cp, ok := db.chargePoints[chargePointID]
+	if !ok {
+		return 0, 0, fmt.Errorf("charge point %s not found", chargePointID)
+	}
+
+	created := 0
+	removed := 0
+	now := time.Now()
+
+	for id := 1; id <= count; id++ {
+		key := connectorKey(chargePointID, id)
+		if _, exists := db.connectors[key]; !exists {
+			db.connectors[key] = &types.Connector{
+				ChargePointID:    chargePointID,
+				ConnectorID:      id,
+				Status:           "Unknown",
+				LastStatusUpdate: now,
+			}
+			created++
+		}
+	}
+
+	for key, connector := range db.connectors {
+		if connector.ChargePointID == chargePointID && connector.ConnectorID > count {
+			delete(db.connectors, key)
+			removed++
+		}
+	}
+
+	cp.NumberOfConnectors = count
+	cp.LastSeen = now
+	db.chargePoints[chargePointID] = cp
+
+	return created, removed, nil
 }
 
 // Session methods
@@ -285,6 +321,67 @@ func (db *MockDatabase) AddEnergyReading(reading *types.EnergyReading) {
 	}
 }
 
+func (db *MockDatabase) AddEvent(
+	source, level, action, message, chargePointID string,
+	connectorID, transactionID *int,
+	details map[string]interface{},
+) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	event := &TimelineEvent{
+		ID:            db.eventIDCounter,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339Nano),
+		Source:        source,
+		Level:         level,
+		Action:        action,
+		ChargePointID: chargePointID,
+		ConnectorID:   cloneIntPtr(connectorID),
+		TransactionID: cloneIntPtr(transactionID),
+		Message:       message,
+		Details:       cloneDetails(details),
+	}
+	db.eventIDCounter++
+	db.events = append(db.events, event)
+
+	// Keep memory bounded.
+	const maxEvents = 2000
+	if len(db.events) > maxEvents {
+		db.events = append([]*TimelineEvent(nil), db.events[len(db.events)-maxEvents:]...)
+	}
+}
+
+func (db *MockDatabase) GetRecentEvents(limit int) []TimelineEvent {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > len(db.events) {
+		limit = len(db.events)
+	}
+
+	out := make([]TimelineEvent, 0, limit)
+	start := len(db.events) - limit
+	for i := len(db.events) - 1; i >= start; i-- {
+		ev := db.events[i]
+		out = append(out, TimelineEvent{
+			ID:            ev.ID,
+			Timestamp:     ev.Timestamp,
+			Source:        ev.Source,
+			Level:         ev.Level,
+			Action:        ev.Action,
+			ChargePointID: ev.ChargePointID,
+			ConnectorID:   cloneIntPtr(ev.ConnectorID),
+			TransactionID: cloneIntPtr(ev.TransactionID),
+			Message:       ev.Message,
+			Details:       cloneDetails(ev.Details),
+		})
+	}
+	return out
+}
+
 func (db *MockDatabase) GetEnergyReadings(transactionID int) []*types.EnergyReading {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -310,6 +407,7 @@ type Stats struct {
 	TotalConnectors    int
 	ActiveSessions     int
 	TotalSessions      int
+	TotalEvents        int
 }
 
 func (db *MockDatabase) GetStats() Stats {
@@ -336,5 +434,29 @@ func (db *MockDatabase) GetStats() Stats {
 		TotalConnectors:    len(db.connectors),
 		ActiveSessions:     activeCount,
 		TotalSessions:      len(db.sessions),
+		TotalEvents:        len(db.events),
 	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func cloneIntPtr(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
+func cloneDetails(in map[string]interface{}) map[string]interface{} {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

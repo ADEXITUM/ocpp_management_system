@@ -153,7 +153,8 @@ func (ps *PaymentService) StopChargingSession(
 
 // Error handling example
 func ExampleErrorHandling() {
-	fmt.Println("\n📋 Error Handling Examples:\n")
+	fmt.Println("\n📋 Error Handling Examples:")
+	fmt.Println()
 
 	// Example 1: Charge point not found
 	err := errors.NewChargePointNotFoundError("CP999")
@@ -187,7 +188,7 @@ func main() {
 	fmt.Println()
 	fmt.Println("📌 Prerequisites for integration tests:")
 	fmt.Println("   1. Start OCPP server: go run cmd/server/main.go")
-	fmt.Println("   2. Connect emulator: WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts")
+	fmt.Println("   2. Connect emulator: WS_URL=ws://localhost:9005/CP001 npx tsx index_16.ts")
 	fmt.Println("   3. Run tests: go test ./pkg/service -v -run TestChargingServiceFlow")
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════")

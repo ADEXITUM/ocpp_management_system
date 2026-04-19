@@ -48,8 +48,8 @@ go run cmd/server/main.go
 ```
 
 The server will start two services:
-- **OCPP WebSocket** on port `9000` (for charge points)
-- **REST API** on port `8080` (for your application)
+- **OCPP WebSocket** on port `9005` (for charge points)
+- **REST API** on port `8000` (for your application)
 
 ```
 ═══════════════════════════════════════════════════════
@@ -63,12 +63,12 @@ The server will start two services:
 
 ✅ System ready!
 
-🌐 REST API listening on http://0.0.0.0:8080
-   POST   http://0.0.0.0:8080/sessions/start
-   GET    http://0.0.0.0:8080/sessions/{transactionId}/energy
-   POST   http://0.0.0.0:8080/sessions/{transactionId}/stop
+🌐 REST API listening on http://0.0.0.0:8000
+   POST   http://0.0.0.0:8000/sessions/start
+   GET    http://0.0.0.0:8000/sessions/{transactionId}/energy
+   POST   http://0.0.0.0:8000/sessions/{transactionId}/stop
 
-🔌 OCPP Server listening on ws://0.0.0.0:9000
+🔌 OCPP Server listening on ws://0.0.0.0:9005
    Waiting for charge points to connect...
 ```
 
@@ -76,13 +76,13 @@ The server will start two services:
 
 Charge points should connect to:
 ```
-ws://localhost:9000/<charge-point-id>
+ws://localhost:9005/<charge-point-id>
 ```
 
 Examples:
-- `ws://localhost:9000/CP001`
-- `ws://localhost:9000/CP002`
-- `ws://localhost:9000/CP003`
+- `ws://localhost:9005/CP001`
+- `ws://localhost:9005/CP002`
+- `ws://localhost:9005/CP003`
 
 ### 5. Use the Emulator for Testing
 
@@ -94,7 +94,7 @@ cd ocpp-virtual-charge-point
 npm install
 
 # Connect as CP001
-WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
+WS_URL=ws://localhost:9005/CP001 npx tsx index_16.ts
 ```
 
 ## Using the REST API (Recommended)
@@ -105,7 +105,7 @@ The easiest way to control charging sessions is via REST API. See [API_EXAMPLES.
 
 ```bash
 # 1. Start charging session (with payment)
-curl -X POST http://localhost:8080/sessions/start \
+curl -X POST http://localhost:8000/sessions/start \
   -H "Content-Type: application/json" \
   -d '{
     "chargePointId": "CP001",
@@ -122,10 +122,10 @@ curl -X POST http://localhost:8080/sessions/start \
 # }
 
 # 2. Get energy consumption
-curl "http://localhost:8080/sessions/1/energy?chargePointId=CP001"
+curl "http://localhost:8000/sessions/1/energy?chargePointId=CP001"
 
 # 3. Stop charging
-curl -X POST "http://localhost:8080/sessions/1/stop?chargePointId=CP001"
+curl -X POST "http://localhost:8000/sessions/1/stop?chargePointId=CP001"
 ```
 
 See [API_EXAMPLES.md](./API_EXAMPLES.md) for:
@@ -155,7 +155,7 @@ import (
 func main() {
     // Initialize
     db := database.NewMockDatabase()
-    server := ocpp.NewServer(9000, db)
+    server := ocpp.NewServer(9005, db)
     chargingService := service.NewChargingService(db, server.GetConnectionManager())
 
     // Start charging after payment approved
@@ -362,7 +362,7 @@ The system is built in layers:
 Set environment variables or create a `.env` file:
 
 ```bash
-export OCPP_PORT=9000
+export OCPP_PORT=9005
 ```
 
 ### Adding Charge Points
@@ -437,7 +437,7 @@ go run cmd/server/main.go
 
 # In another terminal, connect emulator
 cd ocpp-virtual-charge-point
-WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts
+WS_URL=ws://localhost:9005/CP001 npx tsx index_16.ts
 
 # The charge point will boot and send StatusNotification
 # You can then use the API to control it
@@ -468,8 +468,8 @@ The system is designed to be easily extended:
 
 ### Charge point won't connect
 
-1. Check the WebSocket URL format: `ws://ip:9000/CP001`
-2. Ensure firewall allows port 9000
+1. Check the WebSocket URL format: `ws://ip:9005/CP001`
+2. Ensure firewall allows port 9005
 3. Check server logs for connection attempts
 
 ### "Charge point not configured" error

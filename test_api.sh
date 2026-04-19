@@ -3,7 +3,7 @@
 # Скрипт для тестирования REST API
 # Требует: запущенный сервер и подключенную зарядную станцию
 
-BASE_URL="http://localhost:8080"
+BASE_URL="http://localhost:8000"
 CHARGE_POINT="CP001"
 CONNECTOR=1
 USER_ID="test-user-123"
@@ -14,7 +14,7 @@ echo "════════════════════════�
 echo ""
 echo "Prerequisites:"
 echo "  1. OCPP server running: go run cmd/server/main.go"
-echo "  2. Charge point connected: WS_URL=ws://localhost:9000/CP001 npx tsx index_16.ts"
+echo "  2. Charge point connected: WS_URL=ws://localhost:9005/CP001 npx tsx index_16.ts"
 echo ""
 echo "Press Enter to start testing..."
 read
@@ -59,7 +59,7 @@ TX_ID=$(echo "$RESPONSE" | jq -r '.transactionId')
 if [ "$TX_ID" = "null" ] || [ -z "$TX_ID" ]; then
     echo ""
     echo "❌ Failed to start session. Check if charge point is connected."
-    echo "   Run: WS_URL=ws://localhost:9000/$CHARGE_POINT npx tsx index_16.ts"
+    echo "   Run: WS_URL=ws://localhost:9005/$CHARGE_POINT npx tsx index_16.ts"
     exit 1
 fi
 

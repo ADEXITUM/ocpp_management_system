@@ -15,11 +15,11 @@ import (
 func TestChargingServiceFlow(t *testing.T) {
 	// Setup
 	db := database.NewMockDatabase()
-	server := ocpp.NewServer(9000, db)
+	server := ocpp.NewServer(9005, db)
 	cm := server.GetConnectionManager()
 	service := NewChargingService(db, cm)
 
-	chargePointID := "CP001"
+	chargePointID := "my-test"
 	connectorID := 1
 	userID := "test-user-123"
 
@@ -119,8 +119,8 @@ func TestChargingServiceErrors(t *testing.T) {
 	})
 
 	t.Run("ChargePointOffline", func(t *testing.T) {
-		// CP001 exists but is not connected
-		_, err := service.TurnOn("CP001", 1, "user-123")
+		// my-test exists but is not connected
+		_, err := service.TurnOn("my-test", 1, "user-123")
 		if err == nil {
 			t.Fatal("Expected error for offline charge point")
 		}
@@ -128,8 +128,7 @@ func TestChargingServiceErrors(t *testing.T) {
 	})
 
 	t.Run("ConnectorNotFound", func(t *testing.T) {
-		// CP001 has only 2 connectors
-		_, err := service.TurnOn("CP001", 99, "user-123")
+		_, err := service.TurnOn("my-test", 99, "user-123")
 		if err == nil {
 			t.Fatal("Expected error for non-existent connector")
 		}
@@ -137,7 +136,7 @@ func TestChargingServiceErrors(t *testing.T) {
 	})
 
 	t.Run("SessionNotFound", func(t *testing.T) {
-		_, err := service.GetEnergyConsumption("CP001", 99999)
+		_, err := service.GetEnergyConsumption("my-test", 99999)
 		if err == nil {
 			t.Fatal("Expected error for non-existent session")
 		}
@@ -151,15 +150,15 @@ func TestDatabaseOperations(t *testing.T) {
 
 	t.Run("Charge points initialized", func(t *testing.T) {
 		chargePoints := db.GetAllChargePoints()
-		if len(chargePoints) != 3 {
-			t.Fatalf("Expected 3 charge points, got %d", len(chargePoints))
+		if len(chargePoints) != 1 {
+			t.Fatalf("Expected 1 charge point, got %d", len(chargePoints))
 		}
 		t.Logf("✓ Found %d charge points", len(chargePoints))
 	})
 
 	t.Run("Create and retrieve session", func(t *testing.T) {
 		session := &types.ChargingSession{
-			ChargePointID:     "CP001",
+			ChargePointID:     "my-test",
 			ConnectorID:       1,
 			UserID:            "test-user",
 			StartTime:         time.Now(),
@@ -186,9 +185,9 @@ func TestDatabaseOperations(t *testing.T) {
 	})
 
 	t.Run("Update connector status", func(t *testing.T) {
-		db.UpdateConnectorStatus("CP001", 1, types.StatusCharging)
+		db.UpdateConnectorStatus("my-test", 1, types.StatusCharging)
 
-		connector := db.GetConnector("CP001", 1)
+		connector := db.GetConnector("my-test", 1)
 		if connector == nil {
 			t.Fatal("Connector not found")
 		}
@@ -207,7 +206,7 @@ func TestEnergyCalculations(t *testing.T) {
 
 	// Create a session
 	session := &types.ChargingSession{
-		ChargePointID:     "CP001",
+		ChargePointID:     "my-test",
 		ConnectorID:       1,
 		UserID:            "test-user",
 		StartTime:         time.Now().Add(-30 * time.Minute),

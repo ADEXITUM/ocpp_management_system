@@ -8,21 +8,32 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ADEXITUM/ocpp_management_system/pkg/database"
 	"github.com/ADEXITUM/ocpp_management_system/pkg/errors"
+	"github.com/ADEXITUM/ocpp_management_system/pkg/ocpp"
 	"github.com/ADEXITUM/ocpp_management_system/pkg/service"
 )
 
 // Server provides HTTP REST API for charging operations
 type Server struct {
-	port            int
-	chargingService *service.ChargingService
+	port              int
+	chargingService   *service.ChargingService
+	db                *database.MockDatabase
+	connectionManager *ocpp.ConnectionManager
 }
 
 // NewServer creates a new API server
-func NewServer(port int, chargingService *service.ChargingService) *Server {
+func NewServer(
+	port int,
+	chargingService *service.ChargingService,
+	db *database.MockDatabase,
+	connectionManager *ocpp.ConnectionManager,
+) *Server {
 	return &Server{
-		port:            port,
-		chargingService: chargingService,
+		port:              port,
+		chargingService:   chargingService,
+		db:                db,
+		connectionManager: connectionManager,
 	}
 }
 
@@ -75,17 +86,21 @@ type StopSessionResponse struct {
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Success      bool   `json:"success"`
-	Error        string `json:"error"`
-	ErrorCode    string `json:"errorCode,omitempty"`
-	UserMessage  string `json:"userMessage"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error"`
+	ErrorCode   string `json:"errorCode,omitempty"`
+	UserMessage string `json:"userMessage"`
 }
 
 // Start starts the HTTP API server
 func (s *Server) Start() error {
 	http.HandleFunc("/sessions/start", s.handleStartSession)
 	http.HandleFunc("/sessions/", s.handleSessionOperations)
+	http.HandleFunc("/charge-points/", s.handleChargePointOperations)
 	http.HandleFunc("/health", s.handleHealth)
+	http.HandleFunc("/dashboard", s.handleDashboard)
+	http.HandleFunc("/state", s.handleState)
+	http.HandleFunc("/events", s.handleEvents)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	log.Printf("🌐 REST API listening on http://%s", addr)
@@ -93,6 +108,8 @@ func (s *Server) Start() error {
 	log.Printf("   GET    http://%s/sessions/{transactionId}/energy", addr)
 	log.Printf("   POST   http://%s/sessions/{transactionId}/stop", addr)
 	log.Printf("   GET    http://%s/health", addr)
+	log.Printf("   GET    http://%s/dashboard", addr)
+	log.Printf("   GET    http://%s/state", addr)
 	log.Println()
 
 	return http.ListenAndServe(addr, s.corsMiddleware(http.DefaultServeMux))
@@ -123,20 +140,68 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 
 	var req StartSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.recordEvent(
+			"warn",
+			"StartSessionInvalidBody",
+			"Failed to decode start session payload",
+			"",
+			nil,
+			nil,
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "Invalid request body", "")
 		return
 	}
+	s.recordEvent(
+		"info",
+		"StartSessionRequest",
+		"Received API request to start session",
+		req.ChargePointID,
+		ptrInt(req.ConnectorID),
+		nil,
+		map[string]interface{}{
+			"userId":     req.UserID,
+			"amountPaid": req.AmountPaid,
+		},
+	)
 
 	// Валидация
 	if req.ChargePointID == "" {
+		s.recordEvent(
+			"warn",
+			"StartSessionValidationFailed",
+			"chargePointId is required",
+			"",
+			ptrInt(req.ConnectorID),
+			nil,
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "chargePointId is required", "")
 		return
 	}
 	if req.ConnectorID == 0 {
+		s.recordEvent(
+			"warn",
+			"StartSessionValidationFailed",
+			"connectorId is required",
+			req.ChargePointID,
+			nil,
+			nil,
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "connectorId is required", "")
 		return
 	}
 	if req.UserID == "" {
+		s.recordEvent(
+			"warn",
+			"StartSessionValidationFailed",
+			"userId is required",
+			req.ChargePointID,
+			ptrInt(req.ConnectorID),
+			nil,
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "userId is required", "")
 		return
 	}
@@ -150,9 +215,27 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	// Запуск сессии
 	result, err := s.chargingService.TurnOn(req.ChargePointID, req.ConnectorID, req.UserID)
 	if err != nil {
+		s.recordEvent(
+			"warn",
+			"StartSessionFailed",
+			err.Error(),
+			req.ChargePointID,
+			ptrInt(req.ConnectorID),
+			nil,
+			nil,
+		)
 		s.sendOCPPError(w, err)
 		return
 	}
+	s.recordEvent(
+		"info",
+		"StartSessionSuccess",
+		"Charging session started",
+		result.ChargePointID,
+		ptrInt(result.ConnectorID),
+		ptrInt(result.TransactionID),
+		map[string]interface{}{"userId": result.UserID},
+	)
 
 	log.Printf("✅ [API] Session started: Transaction ID %d", result.TransactionID)
 
@@ -206,17 +289,141 @@ func (s *Server) handleSessionOperations(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// handleChargePointOperations handles /charge-points/{chargePointId}/...
+func (s *Server) handleChargePointOperations(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/charge-points/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		s.sendError(w, http.StatusBadRequest, "Invalid URL format", "")
+		return
+	}
+
+	chargePointID := strings.TrimSpace(parts[0])
+	operation := strings.TrimSpace(parts[1])
+	if chargePointID == "" {
+		s.sendError(w, http.StatusBadRequest, "chargePointId is required", "")
+		return
+	}
+
+	switch operation {
+	case "sync-connectors":
+		if r.Method != http.MethodPost {
+			s.sendError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			return
+		}
+		s.handleSyncConnectors(w, r, chargePointID)
+	default:
+		s.sendError(w, http.StatusNotFound, "Unknown operation", "")
+	}
+}
+
+func (s *Server) handleSyncConnectors(w http.ResponseWriter, r *http.Request, chargePointID string) {
+	s.recordEvent(
+		"info",
+		"SyncConnectorsRequest",
+		"Sync connector count from charge point configuration",
+		chargePointID,
+		nil,
+		nil,
+		nil,
+	)
+
+	count, err := s.connectionManager.GetConnectorCountFromChargePoint(chargePointID)
+	if err != nil {
+		s.recordEvent(
+			"warn",
+			"SyncConnectorsFailed",
+			err.Error(),
+			chargePointID,
+			nil,
+			nil,
+			nil,
+		)
+		s.sendJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"success":     false,
+			"error":       err.Error(),
+			"userMessage": "Failed to read NumberOfConnectors from charger",
+		})
+		return
+	}
+
+	created, removed, syncErr := s.db.SyncConnectorCount(chargePointID, count)
+	if syncErr != nil {
+		s.recordEvent(
+			"warn",
+			"SyncConnectorsFailed",
+			syncErr.Error(),
+			chargePointID,
+			nil,
+			nil,
+			nil,
+		)
+		s.sendError(w, http.StatusNotFound, syncErr.Error(), "CHARGE_POINT_NOT_FOUND")
+		return
+	}
+
+	s.recordEvent(
+		"info",
+		"SyncConnectorsSuccess",
+		"Connector list synchronized from charger",
+		chargePointID,
+		nil,
+		nil,
+		map[string]interface{}{
+			"numberOfConnectors": count,
+			"created":            created,
+			"removed":            removed,
+		},
+	)
+
+	s.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"success":            true,
+		"chargePointId":      chargePointID,
+		"numberOfConnectors": count,
+		"created":            created,
+		"removed":            removed,
+		"message":            "Connector list synchronized from charger configuration",
+	})
+}
+
 // handleGetEnergy handles GET /sessions/{transactionId}/energy
 func (s *Server) handleGetEnergy(w http.ResponseWriter, r *http.Request, transactionID int) {
 	// Get chargePointId from query param
 	chargePointID := r.URL.Query().Get("chargePointId")
 	if chargePointID == "" {
+		s.recordEvent(
+			"warn",
+			"GetEnergyValidationFailed",
+			"chargePointId query parameter is required",
+			"",
+			nil,
+			ptrInt(transactionID),
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "chargePointId query parameter is required", "")
 		return
 	}
+	s.recordEvent(
+		"info",
+		"GetEnergyRequest",
+		"Received API request for energy snapshot",
+		chargePointID,
+		nil,
+		ptrInt(transactionID),
+		nil,
+	)
 
 	consumption, err := s.chargingService.GetEnergyConsumption(chargePointID, transactionID)
 	if err != nil {
+		s.recordEvent(
+			"warn",
+			"GetEnergyFailed",
+			err.Error(),
+			chargePointID,
+			nil,
+			ptrInt(transactionID),
+			nil,
+		)
 		s.sendOCPPError(w, err)
 		return
 	}
@@ -238,6 +445,19 @@ func (s *Server) handleGetEnergy(w http.ResponseWriter, r *http.Request, transac
 		Status:          consumption.Status,
 		CostEstimate:    costEstimate,
 	}
+	s.recordEvent(
+		"info",
+		"GetEnergySuccess",
+		"Energy snapshot generated",
+		chargePointID,
+		ptrInt(consumption.ConnectorID),
+		ptrInt(transactionID),
+		map[string]interface{}{
+			"energyWh":  consumption.CurrentEnergyWh,
+			"status":    consumption.Status,
+			"durationS": consumption.DurationSeconds,
+		},
+	)
 
 	s.sendJSON(w, http.StatusOK, response)
 }
@@ -247,14 +467,41 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request, trans
 	// Get chargePointId from query param
 	chargePointID := r.URL.Query().Get("chargePointId")
 	if chargePointID == "" {
+		s.recordEvent(
+			"warn",
+			"StopSessionValidationFailed",
+			"chargePointId query parameter is required",
+			"",
+			nil,
+			ptrInt(transactionID),
+			nil,
+		)
 		s.sendError(w, http.StatusBadRequest, "chargePointId query parameter is required", "")
 		return
 	}
+	s.recordEvent(
+		"info",
+		"StopSessionRequest",
+		"Received API request to stop session",
+		chargePointID,
+		nil,
+		ptrInt(transactionID),
+		nil,
+	)
 
 	log.Printf("🛑 [API] Stopping session %d on %s", transactionID, chargePointID)
 
 	result, err := s.chargingService.TurnOff(chargePointID, transactionID)
 	if err != nil {
+		s.recordEvent(
+			"warn",
+			"StopSessionFailed",
+			err.Error(),
+			chargePointID,
+			nil,
+			ptrInt(transactionID),
+			nil,
+		)
 		s.sendOCPPError(w, err)
 		return
 	}
@@ -276,6 +523,18 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request, trans
 		DurationMinutes: durationMinutes,
 		FinalCost:       finalCost,
 	}
+	s.recordEvent(
+		"info",
+		"StopSessionSuccess",
+		"Charging session stopped",
+		result.ChargePointID,
+		nil,
+		ptrInt(result.TransactionID),
+		map[string]interface{}{
+			"energyWh":  result.EnergyConsumed,
+			"durationS": result.Duration,
+		},
+	)
 
 	s.sendJSON(w, http.StatusOK, response)
 }
@@ -288,7 +547,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sendJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "ok",
+		"status":  "ok",
 		"service": "ocpp-management-system",
 	})
 }
@@ -335,4 +594,20 @@ func (s *Server) sendOCPPError(w http.ResponseWriter, err error) {
 	} else {
 		s.sendError(w, http.StatusInternalServerError, err.Error(), "INTERNAL_ERROR")
 	}
+}
+
+func (s *Server) recordEvent(
+	level, action, message, chargePointID string,
+	connectorID, transactionID *int,
+	details map[string]interface{},
+) {
+	s.db.AddEvent("api", level, action, message, chargePointID, connectorID, transactionID, details)
+}
+
+func ptrInt(v int) *int {
+	if v == 0 {
+		return nil
+	}
+	cp := v
+	return &cp
 }
